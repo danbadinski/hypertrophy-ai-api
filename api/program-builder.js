@@ -1,17 +1,15 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-
 const OpenAI = require("openai");
 const { ProgramBuilderInputSchema, ProgramSpecSchema } = require("../lib/schema");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-function setCors(res: VercelResponse) {
+function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+module.exports = async (req, res) => {
   setCors(res);
 
   if (req.method === "OPTIONS") return res.status(204).end();
@@ -36,7 +34,7 @@ No markdown. No commentary.
 
   const userPayload = { task: "Generate ProgramSpec JSON", input };
 
-  async function generateOnce(extraInstruction?: string) {
+  async function generateOnce(extraInstruction) {
     const msg = extraInstruction
       ? `${JSON.stringify(userPayload)}\n\nIMPORTANT: ${extraInstruction}`
       : JSON.stringify(userPayload);
@@ -49,7 +47,7 @@ No markdown. No commentary.
       ],
     });
 
-    const text = response.output_text?.trim();
+    const text = response.output_text && response.output_text.trim();
     if (!text) throw new Error("No output_text from model");
     return text;
   }
@@ -57,7 +55,7 @@ No markdown. No commentary.
   try {
     const text1 = await generateOnce();
 
-    let json: any;
+    let json;
     try {
       json = JSON.parse(text1);
     } catch {
@@ -77,7 +75,7 @@ No markdown. No commentary.
     }
 
     return res.status(200).json(validated.data);
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ error: "Server error", message: err?.message ?? String(err) });
   }
-}
+};
