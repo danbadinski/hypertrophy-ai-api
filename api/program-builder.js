@@ -26,24 +26,68 @@ module.exports = async (req, res) => {
 
   const input = parsed.data;
 
+  // IMPORTANT: Force the model into the exact top-level ProgramSpec shape
+  const requiredShape = {
+    planName: "string",
+    daysPerWeek: 4,
+    split: "string (e.g. UPPER_LOWER, PPL, FULL_BODY)",
+    progression: {
+      overview: "string",
+      rules: ["string"]
+    },
+    templates: [
+      {
+        dayName: "string",
+        focus: "string",
+        blocks: [
+          {
+            blockName: "string",
+            exercises: [
+              {
+                name: "string",
+                sets: "number",
+                reps: "string (e.g. 6-10)",
+                rir: "string or number",
+                restSec: "number",
+                notes: "string (optional)"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+
   const system = `
-You are an expert hypertrophy coach.
-Return ONLY valid JSON matching the required ProgramSpec schema.
-No markdown. No commentary.
+You are an expert hypertrophy coach AND a strict JSON generator.
+
+You MUST return ONE JSON object ONLY.
+No markdown. No commentary. No extra keys.
+
+Your output MUST match this exact top-level shape:
+${JSON.stringify(requiredShape, null, 2)}
+
+Hard rules:
+- Include ALL required top-level keys: planName, daysPerWeek, split, progression, templates
+- daysPerWeek MUST be a number
+- templates MUST be an array with length exactly equal to daysPerWeek
+- Return only valid JSON
 `.trim();
 
-  const userPayload = { task: "Generate ProgramSpec JSON", input };
-
   async function generateOnce(extraInstruction) {
-    const msg = extraInstruction
-      ? `${JSON.stringify(userPayload)}\n\nIMPORTANT: ${extraInstruction}`
-      : JSON.stringify(userPayload);
+    const userMsg = {
+      task: "Generate a ProgramSpec JSON object that matches the exact required shape.",
+      input,
+      reminder: extraInstruction || null
+    };
 
     const response = await openai.responses.create({
       model: "gpt-4.1-mini",
+      // Lower randomness = more schema compliance
+      temperature: 0.2,
       input: [
         { role: "system", content: system },
-        { role: "user", content: msg },
+        { role: "user", content: JSON.stringify(userMsg) },
       ],
     });
 
@@ -53,24 +97,45 @@ No markdown. No commentary.
   }
 
   try {
-    const text1 = await generateOnce();
+    const raw1 = await generateOnce();
 
     let json;
+    let rawUsed = raw1;
+
     try {
-      json = JSON.parse(text1);
+      json = JSON.parse(raw1);
     } catch {
-      const text2 = await generateOnce("Return ONLY valid JSON for ProgramSpec.");
-      json = JSON.parse(text2);
+      const raw2 = await generateOnce("Return ONLY the JSON object. No backticks, no prose.");
+      rawUsed = raw2;
+      json = JSON.parse(raw2);
     }
 
     const validated = ProgramSpecSchema.safeParse(json);
     if (!validated.success) {
-      const text3 = await generateOnce("Fix JSON to match ProgramSpec exactly. Return ONLY JSON.");
-      const json3 = JSON.parse(text3);
+      const raw3 = await generateOnce(
+        "Your last JSON did NOT match the required shape. Fix it. Include ALL required top-level keys and correct types."
+      );
+
+      let json3;
+      try {
+        json3 = JSON.parse(raw3);
+      } catch {
+        return res.status(500).json({
+          error: "Model returned non-JSON on schema fix attempt",
+          raw: raw3,
+        });
+      }
+
       const validated2 = ProgramSpecSchema.safeParse(json3);
       if (!validated2.success) {
-        return res.status(500).json({ error: "Model returned invalid schema twice", details: validated2.error.flatten() });
+        return res.status(500).json({
+          error: "Model returned invalid schema twice",
+          details: validated2.error.flatten(),
+          raw_last: raw3,
+          raw_first: raw1,
+        });
       }
+
       return res.status(200).json(validated2.data);
     }
 
