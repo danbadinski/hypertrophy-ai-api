@@ -1,4 +1,9 @@
 {
   "buildCommand": "echo \"no build\"",
-  "outputDirectory": "."
+  "outputDirectory": ".",
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "nodejs20.x"
+    }
+  }
 }
