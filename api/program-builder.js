@@ -9,18 +9,6 @@ function setCors(res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
-/**
- * IMPORTANT:
- * This is the JSON Schema OpenAI will use to force the output.
- * Keep it aligned with your Zod ProgramSpecSchema.
- *
- * This version matches the JSON your model is already producing (from your raw outputs):
- * - planName
- * - daysPerWeek
- * - split
- * - progression { overview, rules[] }
- * - templates[] { dayName, focus, blocks[] { blockName, exercises[] { name, sets, reps, rir, restSec, notes? } } }
- */
 const ProgramSpecJsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -68,9 +56,16 @@ const ProgramSpecJsonSchema = {
                       reps: { type: "string" },
                       rir: { type: "integer", minimum: 0, maximum: 5 },
                       restSec: { type: "integer", minimum: 0, maximum: 600 },
-                      notes: { type: "string" },
+                      notes: { type: "string" }, // now required
                     },
-                    required: ["name", "sets", "reps", "rir", "restSec"],
+                    required: [
+                      "name",
+                      "sets",
+                      "reps",
+                      "rir",
+                      "restSec",
+                      "notes"
+                    ],
                   },
                 },
               },
@@ -85,7 +80,6 @@ const ProgramSpecJsonSchema = {
   required: ["planName", "daysPerWeek", "split", "progression", "templates"],
 };
 
-// Safety check so you never get "type None" again
 if (!ProgramSpecJsonSchema || ProgramSpecJsonSchema.type !== "object") {
   throw new Error("ProgramSpecJsonSchema root must be type: object");
 }
@@ -152,7 +146,6 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Final safety validation with Zod (your truth source)
     const validated = ProgramSpecSchema.safeParse(json);
     if (!validated.success) {
       return res.status(500).json({
